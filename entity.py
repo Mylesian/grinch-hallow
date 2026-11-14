@@ -3,9 +3,10 @@ from pygut.collider import RectCollider
 import pygut
 import pygut.base
 import pygame
-import const
 import fsm
 import random as rand
+import const
+from const import X,Y,WIDTH,HEIGHT
 
 player_dim = const.PLAYER_DIMENSIONS
 player_img_dim = const.PLAYER_IMG_DIMENSIONS
@@ -15,8 +16,8 @@ enemy1_img_dim = const.ENEMY1_IMG_DIMENSIONS
 class Entity(GameElement):
     def __init__(self, start_platform, hp, start_image, iframe_time, hit_kb_speed, hitbox_dimensions, image_offset, speed_cap = None, falls = True):
         pos = (start_platform.centerx, start_platform.top + hitbox_dimensions[1]/2)
-        super().__init__((pos[0] + image_offset[0], pos[1] + image_offset[1]), start_image,
-                         RectCollider(pos[0], pos[1], hitbox_dimensions[0], hitbox_dimensions[1]))
+        super().__init__((pos[X] + image_offset[X], pos[Y] + image_offset[Y]), start_image,
+                         RectCollider(pos[X], pos[Y], hitbox_dimensions[WIDTH], hitbox_dimensions[HEIGHT]))
         
         self.velocity = pygame.Vector2()
         self.acceleration = pygame.Vector2(0, const.GRAVITY if falls else 0)
@@ -123,28 +124,44 @@ class Entity(GameElement):
     
     def move_logic(self):
         self.velocity += self.acceleration
+        last_pos = self.pos.copy()
         
-        self.move((self.velocity.x, 0))
-        # future x collision logic here
+        if self.velocity.x != 0:
+            self.move((self.velocity.x, 0))
+            # x collision logic
+            for e in pygut.app.platforms:
+                if self.collider.collides(e.collider):
+                    if self.velocity.x < 0:
+                        self.move((self.collider.bounds.left - e.collider.bounds.right, 0))
+                    else:
+                        self.move((e.collider.bounds.left - self.collider.bounds.right, 0))
+                    
+                    self.velocity.x = 0
+                    self.acceleration.x = 0
         
-        self.move((0, self.velocity.y))
+        if self.velocity.y != 0:
+            self.move((0, self.velocity.y))
         # y collision logic
+        on_ground_set = False
         for e in pygut.app.platforms:
             if self.collider.collides(e.collider):
                 if self.velocity.y < 0:
-                    self.move((0, self.rect.top - e.rect.bottom))
-                    self.velocity.y = 0
+                    self.move((0, self.collider.bounds.top - e.collider.bounds.bottom))
                 else:
-                    self.move((0, e.rect.top - self.rect.bottom))
+                    self.move((0, e.collider.bounds.top - self.collider.bounds.bottom))
                     
                     self.on_ground = True
-                    self.velocity.y = 0
-                    self.acceleration.y = 0
+                    on_ground_set = True
                     
                     if e is not self.current_platform:
                         self.current_platform = e
+                        
+                self.velocity.y = 0
         
-        if not self.on_ground and self.acceleration.y == 0: self.acceleration.y = const.GRAVITY
+        if not on_ground_set and self.on_ground: 
+            self.on_ground = False
+        
+        if self.attack is not None: self.attack.move(self.pos - last_pos)
     
 class Player(Entity):
     def __init__(self, start_platform):
@@ -159,7 +176,8 @@ class Player(Entity):
         
         self.dead = pygame.transform.scale(pygame.image.load('assets/player_dead.png').convert_alpha(), player_img_dim)
         
-        super().__init__(start_platform, const.PLAYER_HP, self.idle_right, const.PLAYER_IFRAME_SEC, const.PLAYER_KB_SPEED, player_dim, (0, player_dim[1] - player_img_dim[1]), const.PLAYER_MAX_SPEED)
+        super().__init__(start_platform, const.PLAYER_HP, self.idle_right, const.PLAYER_IFRAME_SEC, const.PLAYER_KB_SPEED, player_dim,
+                         (0, (player_dim[HEIGHT]-player_img_dim[HEIGHT])/2), const.PLAYER_MAX_SPEED)
         self.current_platform = start_platform
         
         self.set_inputs()
@@ -205,7 +223,7 @@ class Player(Entity):
             self.moving = False
             self.acceleration.x = 0
         def jump():
-            if self.on_ground == True and self.is_alive:
+            if self.on_ground == True and self.is_alive and not self.current_platform.ecto:
                 self.velocity.y = const.PLAYER_JUMP_SPEED
                 self.on_ground = False
         
@@ -229,30 +247,40 @@ class Player(Entity):
             
             self.attack = None
             self.can_attack = True
+            
+        # attempt to interact with an interactable entity
+        def interact():
+            if self.on_ground:
+                for i in pygut.app.interactables:
+                    if self.collider.collides(i.collider):
+                        i.trigger()
         
-        self.add_action(pygame.K_LEFT, pygut.K_HELD, move_left)
-        self.add_action(pygame.K_RIGHT, pygut.K_HELD, move_right)
-        self.add_action(pygame.K_LEFT, pygut.K_UP, movement_key_up)
-        self.add_action(pygame.K_RIGHT, pygut.K_UP, movement_key_up)
-        self.add_action(pygame.K_z, pygut.K_DOWN, jump)
-        self.add_action(pygame.K_x, pygut.K_DOWN, attack)
+        self.add_action(const.PLAYER_LEFT_KEY, pygut.K_HELD, move_left)
+        self.add_action(const.PLAYER_RIGHT_KEY, pygut.K_HELD, move_right)
+        self.add_action(const.PLAYER_LEFT_KEY, pygut.K_RELEASED, movement_key_up)
+        self.add_action(const.PLAYER_RIGHT_KEY, pygut.K_RELEASED, movement_key_up)
+        
+        self.add_action(const.PLAYER_JUMP_KEY, pygut.K_PRESSED, jump)
+        self.add_action(const.PLAYER_ATK_KEY, pygut.K_PRESSED, attack)
         
         self.attack_timer = pygut.base.Timer(const.PLAYER_ATK_DELAY_SEC, False, attack_complete)
         pygut.add_timer(self.attack_timer)
+        
+        self.add_action(const.PLAYER_INTERACT_KEY, pygut.K_PRESSED, interact)
 
 class Attack(RectCollider):
     def __init__(self, parent: Entity, size):
         self.parent = parent
         
         if parent.facing_right:
-            x = parent.collider.bounds.right + size[0]/2
+            x = parent.collider.bounds.right + size[WIDTH]/2
             self.attach_right = True
         else:
-            x = parent.collider.bounds.left - size[0]/2
+            x = parent.collider.bounds.left - size[WIDTH]/2
             self.attach_right = False
         
-        y = (parent.collider.bounds.top + parent.collider.bounds.bottom) / 2
-        super().__init__(x, y, size[0], size[1])
+        y = parent.collider.bounds.centery
+        super().__init__(x, y, size[WIDTH], size[HEIGHT])
 
 class Enemy(Entity, fsm.Machine):
     def __init__(self, start_platform):
@@ -267,14 +295,17 @@ class Enemy(Entity, fsm.Machine):
         
         self.dead = pygame.transform.scale(pygame.image.load('assets/enemy1_dead.png').convert_alpha(), enemy1_img_dim)
         
-        Entity.__init__(self, start_platform, const.ENEMY1_HP, self.idle_right, const.ENEMY1_IFRAME_SEC, const.ENEMY1_KB_SPEED, enemy1_dim, (0, enemy1_dim[1]-enemy1_img_dim[1]))
+        Entity.__init__(self, start_platform, const.ENEMY1_HP, self.idle_right, const.ENEMY1_IFRAME_SEC, const.ENEMY1_KB_SPEED,
+                        enemy1_dim, (0, (enemy1_dim[HEIGHT]-enemy1_img_dim[HEIGHT])/2))
         
-        patrol = fsm.State(self.check_player)
-        self.states = [patrol]
+        patrol = fsm.State('Patrol', self.check_player)
+        states = [patrol]
         
         self.target: Platform = None
         
-        fsm.Machine.__init__(self, [patrol], patrol)
+        self.type = 'Goblin'
+        
+        fsm.Machine.__init__(self, states, patrol)
         
     def check_player(self):
         # Temp check until generation/world is done and I can write actual a* pathfinding and more fsm states
@@ -297,14 +328,20 @@ class Enemy(Entity, fsm.Machine):
         
     def pick_patrol_target(self) -> Platform:
         return rand.choice(self.current_platform.touching)
-        
+    
 class Platform(GameElement):
-    def __init__(self, pos, w, h):
+    def __init__(self, pos, w, h, ectoplasm = False):
         img = pygame.Surface((w,h))
-        img.fill((0,0,255))
+        self.ecto = ectoplasm
         
-        super().__init__(pos, img, RectCollider(pos[0], pos[1], w, h))
-        self.centerx = pos[0]
-        self.top = pos[1] - h/2
+        # temp platform colors while worldgen is being finished
+        if ectoplasm:
+            img.fill((0,255,0))
+        else:
+            img.fill((0,0,255))
+        
+        super().__init__(pos, img, RectCollider(pos[X], pos[Y], w, h))
+        self.centerx = pos[X]
+        self.top = pos[Y] - h/2
         
         self.touching = [self]

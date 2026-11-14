@@ -1,25 +1,27 @@
+import pygame
+pygame.init()
+
 import pygut
 import pygut.base
 import entity
+import interactable
 import ui
 
 class Game(pygut.Application):
     def __init__(self):
-        super().__init__((400, 400), maximize=True)
+        super().__init__((400, 400), maximize=True, handle_init=False)
         w = self.win.get_surface().width
         h = self.win.get_surface().height
         
         self.hud = ui.HUD()
-        self.platforms = [entity.Platform((w/4, h-25), w/2, 50), entity.Platform((3*w/4, h-25), w/2, 50)]
+        
+        # temp creation for testing while worldgen is being finished
+        self.platforms = [entity.Platform((w/4, h-25), w/2, 50), entity.Platform((3*w/4, h-75), w/2, 50, True)]
         self.player = entity.Player(self.platforms[0])
         self.enemies = [entity.Enemy(self.platforms[1])]
+        self.interactables: list[interactable.Interactable] = [interactable.Potion(self.platforms[0])]
         
-        game_screen = pygut.base.Screen((50,50,50), [self.player, self.hud])
-        
-        for p in self.platforms:
-            game_screen.add(p)
-        for e in self.enemies:
-            game_screen.add(e)
+        game_screen = pygut.base.Screen((50,50,50), [self.player, self.hud] + self.platforms + self.enemies + self.interactables)
         
         self.set_screen(game_screen)
         
