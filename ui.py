@@ -69,6 +69,9 @@ class HUD(pygut.base.UIElement):
             
             if e.attack is not None:
                 pygame.draw.rect(self.debug, const.DEBUG_ENEMY_ATK_CLR, e.attack.bounds, 1)
+                
+            if e.target is not None and e.current_target is not None:
+                pygame.draw.rect(self.debug, const.DEBUG_ENEMY_CLR, e.current_target.collider.bounds, 1)
         
         self.debug.blit(self.debug_text, (self.debug.width - const.DEBUG_TEXT_WIDTH, 0))
     def set_interactable_debug(self):

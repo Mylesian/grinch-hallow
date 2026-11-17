@@ -254,6 +254,12 @@ class Player(Entity):
                 for i in pygut.app.interactables:
                     if self.collider.collides(i.collider):
                         i.trigger()
+                        if self.pos.x < i.pos.x and not self.facing_right:
+                            self.image = self.idle_right
+                            self.facing_right = True
+                        elif self.pos.x > i.pos.x and self.facing_right:
+                            self.image = self.idle_left
+                            self.facing_right = False
         
         self.add_action(const.PLAYER_LEFT_KEY, pygut.K_HELD, move_left)
         self.add_action(const.PLAYER_RIGHT_KEY, pygut.K_HELD, move_right)
@@ -298,36 +304,79 @@ class Enemy(Entity, fsm.Machine):
         Entity.__init__(self, start_platform, const.ENEMY1_HP, self.idle_right, const.ENEMY1_IFRAME_SEC, const.ENEMY1_KB_SPEED,
                         enemy1_dim, (0, (enemy1_dim[HEIGHT]-enemy1_img_dim[HEIGHT])/2))
         
-        patrol = fsm.State('Patrol', self.check_player)
-        states = [patrol]
+        patrol = fsm.State('Patrol', self.check_patrol_dist, self.reset_target)
+        chase = fsm.State('Chase', self.check_chase, self.reset_target)
+        attack = fsm.State('Attack', self.check_attack, self.reset_target)
+        states = [patrol, chase, attack]
         
         self.target: Platform = None
+        self.current_target: Platform = None
         
         self.type = 'Goblin'
         
         fsm.Machine.__init__(self, states, patrol)
         
-    def check_player(self):
+    def check_patrol_dist(self):
         # Temp check until generation/world is done and I can write actual a* pathfinding and more fsm states
-        return True
+        return (pygut.app.player.pos - self.pos).magnitude_squared() >= const.PLAYER_DISTANCE_THRESHOLD_SQUARED
+    def check_chase(self): 
+        return not self.check_patrol_dist() and not self.check_attack()
+    def check_attack(self): 
+        return self.current_platform == pygut.app.player.current_platform
 
     def update(self, **kwargs):
         player = pygut.app.player
         self.check_state()
         
-        if not self.invincible and player.attack is not None and self.collider.collides(player.attack):
-            self.damage(const.PLAYER_DMG, player.pos)
-        
-        if self.current_state == self.states[const.PATROL] and self.target is not None:
-            self.target = self.pick_patrol_target()
-        
-        if self.target is not None:
-            pass
+        if self.is_alive:
+            if not self.invincible and player.attack is not None and self.collider.collides(player.attack):
+                self.damage(const.PLAYER_DMG, player.pos)
+            
+            if self.current_state == self.states[const.PATROL] and self.target is None:
+                self.target = self.pick_patrol_target()
+            elif self.current_state == self.states[const.CHASE] and self.target is None:
+                self.target = player.current_platform
+                self.current_target = self.next_step_towards()
+            
+            if self.target is not None:
+                if self.current_target is None: self.current_target = self.next_step_towards()
+                
+                if self.current_target is not None: self.move_towards_target()
             
         Entity.update(self, **kwargs)
         
     def pick_patrol_target(self) -> Platform:
         return rand.choice(self.current_platform.touching)
+    
+    def reset_target(self):
+        self.target = None
+        self.current_target = None
+    
+    def next_step_towards(self):
+        if self.current_platform == self.target: return None
+        options = self.current_platform.touching
+        target = self.target
+
+        best_pos = 0
+        best_f = fsm.calc_f(options[0], target)
+        for i in range(1, len(options)):
+            f = fsm.calc_f(options[i], target)
+            if f < best_f:
+                best_pos = i
+                best_f = f
+        
+        return options[best_pos]
+    
+    def move_towards_target(self):
+        if self.current_target.pos.x < self.pos.x: self.velocity.x = -const.ENEMY1_PATROL_SPEED
+        else: self.velocity.x = const.ENEMY1_PATROL_SPEED
+        
+        if self.current_target.pos.y < self.current_platform.pos.y and self.on_ground and not self.current_platform.ecto:
+            self.velocity.y = const.ENEMY1_JUMP_SPEED
+    
+    def move_logic(self):
+        super().move_logic()
+        if self.current_target is not None and (self.pos - self.current_target.pos).magnitude_squared() < const.ENEMY1_TARGET_DIST_SQUARED: self.reset_target()
     
 class Platform(GameElement):
     def __init__(self, pos, w, h, ectoplasm = False):
@@ -344,4 +393,4 @@ class Platform(GameElement):
         self.centerx = pos[X]
         self.top = pos[Y] - h/2
         
-        self.touching = [self]
+        self.touching = []
