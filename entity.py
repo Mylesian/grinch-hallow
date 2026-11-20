@@ -2,7 +2,6 @@ from pygut.base import GameElement
 from pygut.collider import RectCollider
 import pygut
 import pygut.base
-import pygut.animation
 import pygame
 import fsm
 import random as rand
@@ -15,11 +14,9 @@ enemy1_dim = const.ENEMY1_DIMENSIONS
 enemy1_img_dim = const.ENEMY1_IMG_DIMENSIONS
 
 class Entity(GameElement):
-    def __init__(self, start_platform, hp, start_frame, iframe_time, hit_kb_speed, hitbox_dimensions, image_offset, speed_cap = None, falls = True):
+    def __init__(self, start_platform, hp, start_image, iframe_time, hit_kb_speed, hitbox_dimensions, image_offset, speed_cap = None, falls = True):
         pos = (start_platform.centerx, start_platform.top + hitbox_dimensions[1]/2)
-        
-        
-        super().__init__((pos[X] + image_offset[X], pos[Y] + image_offset[Y]), start_frame,
+        super().__init__((pos[X] + image_offset[X], pos[Y] + image_offset[Y]), start_image,
                          RectCollider(pos[X], pos[Y], hitbox_dimensions[WIDTH], hitbox_dimensions[HEIGHT]))
         
         self.velocity = pygame.Vector2()
@@ -69,7 +66,7 @@ class Entity(GameElement):
     def damage(self, dmg, src_pos):
         self.hp -= dmg
         if self.hp <= 0: 
-            self.die()
+            self.kill()
             return
         
         self.invincible = True
@@ -80,8 +77,11 @@ class Entity(GameElement):
         if self.pos.x < src_pos.x: self.velocity.x = -self.hit_kb_speed
         else: self.velocity.x = self.hit_kb_speed
         
+        if self.hp <= 0:
+            self.hp = 0
+            self.kill()
       
-    def die(self):
+    def kill(self):
         self.image = self.dead
         self.is_alive = False
         self.hp = 0
@@ -188,13 +188,10 @@ class Player(Entity):
         if not self.is_alive: return
 
         for e in pygut.app.enemies:
-            if not self.invincible:
-                if e.is_alive and self.collider.collides(e.collider):
-                    self.damage(1, e.pos)            
-                    break
-                elif e.attack is not None and self.collider.collides(e.attack):
-                    self.damage(const.ENEMY1_ATK_DMG, e.pos)
-                    break
+            if not self.invincible and e.is_alive and self.collider.collides(e.collider):
+                self.damage(1, e.pos)
+                                
+                break
         
     def set_inputs(self):
         # movement functions called when movement buttons are pressed
@@ -228,6 +225,7 @@ class Player(Entity):
         def jump():
             if self.on_ground == True and self.is_alive and not self.current_platform.ecto:
                 self.velocity.y = const.PLAYER_JUMP_SPEED
+                self.on_ground = False
         
         # attack functions to handle animation & kb
         def attack():
@@ -239,6 +237,16 @@ class Player(Entity):
                 self.attack = Attack(self, const.PLAYER_ATK_DIMENSIONS)
                 self.attack_timer.reset()
                 self.can_attack = False
+        def attack_complete():
+            if not self.is_alive: return
+            
+            if self.facing_right:
+                self.image = self.idle_right
+            else:
+                self.image = self.idle_left
+            
+            self.attack = None
+            self.can_attack = True
             
         # attempt to interact with an interactable entity
         def interact():
@@ -246,12 +254,6 @@ class Player(Entity):
                 for i in pygut.app.interactables:
                     if self.collider.collides(i.collider):
                         i.trigger()
-                        if self.pos.x < i.pos.x and not self.facing_right:
-                            self.image = self.idle_right
-                            self.facing_right = True
-                        elif self.pos.x > i.pos.x and self.facing_right:
-                            self.image = self.idle_left
-                            self.facing_right = False
         
         self.add_action(const.PLAYER_LEFT_KEY, pygut.K_HELD, move_left)
         self.add_action(const.PLAYER_RIGHT_KEY, pygut.K_HELD, move_right)
@@ -261,21 +263,10 @@ class Player(Entity):
         self.add_action(const.PLAYER_JUMP_KEY, pygut.K_PRESSED, jump)
         self.add_action(const.PLAYER_ATK_KEY, pygut.K_PRESSED, attack)
         
-        self.attack_timer = pygut.base.Timer(const.PLAYER_ATK_DELAY_SEC, False, self.attack_complete)
+        self.attack_timer = pygut.base.Timer(const.PLAYER_ATK_DELAY_SEC, False, attack_complete)
         pygut.add_timer(self.attack_timer)
         
         self.add_action(const.PLAYER_INTERACT_KEY, pygut.K_PRESSED, interact)
-
-    def attack_complete(self):
-        if not self.is_alive: return
-        
-        if self.facing_right:
-            self.image = self.idle_right
-        else:
-            self.image = self.idle_left
-        
-        self.attack = None
-        self.can_attack = True
 
 class Attack(RectCollider):
     def __init__(self, parent: Entity, size):
@@ -304,150 +295,40 @@ class Enemy(Entity, fsm.Machine):
         
         self.dead = pygame.transform.scale(pygame.image.load('assets/enemy1_dead.png').convert_alpha(), enemy1_img_dim)
         
-        self.attack_timer = pygut.Timer(const.ENEMY1_ATK_DELAY_SEC, False, self.attack_complete)
-        self.attack_cd_timer = pygut.Timer(const.ENEMY1_ATK_CD_SEC, False, self.attack_cd_complete)
-        pygut.add_timer(self.attack_timer)
-        pygut.add_timer(self.attack_cd_timer)
-        
         Entity.__init__(self, start_platform, const.ENEMY1_HP, self.idle_right, const.ENEMY1_IFRAME_SEC, const.ENEMY1_KB_SPEED,
                         enemy1_dim, (0, (enemy1_dim[HEIGHT]-enemy1_img_dim[HEIGHT])/2))
         
-        patrol = fsm.State('Patrol', self.check_patrol_dist, self.reset_target)
-        chase = fsm.State('Chase', self.check_chase, self.reset_target)
-        attack = fsm.State('Attack', self.check_attack, self.reset_target)
-        states = [patrol, chase, attack]
+        patrol = fsm.State('Patrol', self.check_player)
+        states = [patrol]
         
         self.target: Platform = None
-        self.current_target: Platform = None
         
         self.type = 'Goblin'
         
         fsm.Machine.__init__(self, states, patrol)
         
-    def check_patrol_dist(self):
+    def check_player(self):
         # Temp check until generation/world is done and I can write actual a* pathfinding and more fsm states
-        return (pygut.app.player.pos - self.pos).magnitude_squared() >= const.PLAYER_DISTANCE_THRESHOLD_SQUARED
-    def check_chase(self): 
-        return not self.check_patrol_dist() and not self.check_attack()
-    def check_attack(self): 
-        return self.current_platform == pygut.app.player.current_platform
+        return True
 
     def update(self, **kwargs):
         player = pygut.app.player
         self.check_state()
         
-        if self.is_alive:
-            if not self.invincible and player.attack is not None and self.collider.collides(player.attack):
-                self.damage(const.PLAYER_DMG, player.pos)
-            
-            if self.current_state == self.states[const.PATROL] and self.target is None:
-                self.target = self.pick_patrol_target()
-            elif self.current_state == self.states[const.CHASE] and self.target is None:
-                self.target = player.current_platform
-                self.current_target = self.next_step_towards()
-            elif self.current_state == self.states[const.ATTACK]:
-                if (self.pos - player.pos).magnitude_squared() <= const.ENEMY1_TARGET_DIST_SQUARED:
-                    self.try_attack()
-                else: 
-                    self.move_towards_player()
-                
-                self.face_player()
-            
-            if self.target is not None:
-                if self.current_target is None: self.current_target = self.next_step_towards()
-                
-                if self.current_target is not None: self.move_towards_target()
+        if not self.invincible and player.attack is not None and self.collider.collides(player.attack):
+            self.damage(const.PLAYER_DMG, player.pos)
+        
+        if self.current_state == self.states[const.PATROL] and self.target is not None:
+            self.target = self.pick_patrol_target()
+        
+        if self.target is not None:
+            pass
             
         Entity.update(self, **kwargs)
-    
+        
     def pick_patrol_target(self) -> Platform:
         return rand.choice(self.current_platform.touching)
     
-    def reset_target(self):
-        self.target = None
-        self.current_target = None
-    
-    def next_step_towards(self):
-        if self.current_platform == self.target: return self.current_platform
-        options = self.current_platform.touching
-        target = self.target
-
-        best_pos = 0
-        best_f = fsm.calc_f(options[0], target)
-        for i in range(1, len(options)):
-            f = fsm.calc_f(options[i], target)
-            if f < best_f:
-                best_pos = i
-                best_f = f
-        
-        return options[best_pos]
-    
-    def move_towards_target(self):
-        if self.current_target.pos.x < self.pos.x: 
-            self.velocity.x = -const.ENEMY1_PATROL_SPEED
-            if self.facing_right: self.facing_right = False
-        else: 
-            self.velocity.x = const.ENEMY1_PATROL_SPEED
-            if not self.facing_right: self.facing_right = True
-        
-        if self.current_target.pos.y < self.current_platform.pos.y and self.on_ground and not self.current_platform.ecto:
-            self.velocity.y = const.ENEMY1_JUMP_SPEED 
-            
-        self.fix_facing()
-    
-    def move_towards_player(self):
-        player = pygut.app.player
-        if player.pos.x < self.pos.x: 
-            self.velocity.x = -const.ENEMY1_PATROL_SPEED
-            if self.facing_right: self.facing_right = False
-        else: 
-            self.velocity.x = const.ENEMY1_PATROL_SPEED
-            if not self.facing_right: self.facing_right = True
-            
-        self.fix_facing()
-    
-    def move_logic(self):
-        super().move_logic()
-        if self.current_target is not None and (self.pos - self.current_target.pos).magnitude_squared() < const.ENEMY1_TARGET_DIST_SQUARED: self.reset_target()
-    
-    def try_attack(self):
-        if self.can_attack and self.is_alive:
-            if self.facing_right:
-                self.image = self.attack_right
-            else:
-                self.image = self.attack_left
-            self.attack = Attack(self, const.ENEMY1_ATK_DIMENSIONS)
-            self.attack_timer.reset()
-            self.can_attack = False
-    def attack_complete(self):
-        if not self.is_alive: return
-        
-        if self.facing_right:
-            self.image = self.idle_right
-        else:
-            self.image = self.idle_left
-        
-        self.attack = None
-        self.attack_cd_timer.reset()
-    def attack_cd_complete(self):
-        self.can_attack = True
-    
-    def fix_facing(self):
-        if self.facing_right:
-            if self.image == self.idle_left:
-                self.image = self.idle_right
-            elif self.image == self.attack_left:
-                self.image = self.idle_right
-                self.attack = None
-        elif self.image == self.idle_right:
-            self.image = self.idle_left
-        elif self.image == self.attack_left:
-            self.image = self.idle_left
-            self.attack = None
-    def face_player(self):
-        if pygut.app.player.pos.x < self.pos.x: self.facing_right = False
-        else: self.facing_right = True
-
 class Platform(GameElement):
     def __init__(self, pos, w, h, ectoplasm = False):
         img = pygame.Surface((w,h))
@@ -463,4 +344,4 @@ class Platform(GameElement):
         self.centerx = pos[X]
         self.top = pos[Y] - h/2
         
-        self.touching = []
+        self.touching = [self]
