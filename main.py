@@ -23,7 +23,7 @@ class Game(pygut.Application):
         
         self.player = entity.Player(self.platforms[0])
         self.enemies = [entity.Enemy(self.platforms[2])]
-        self.interactables: list[interactable.Interactable] = [interactable.Mimic(self.platforms[0])]
+        self.interactables: list[interactable.Interactable] = [interactable.Chest(self.platforms[0])]
         
         game_screen = pygut.base.Screen((50,50,50), [self.player, self.hud] + self.platforms + self.enemies + self.interactables)
         
