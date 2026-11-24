@@ -2,7 +2,6 @@ from pygut.base import GameElement
 from pygut.collider import RectCollider
 import pygut
 import pygut.base
-import pygut.animation
 import pygame
 import fsm
 import random as rand
@@ -11,8 +10,8 @@ from const import X,Y,WIDTH,HEIGHT
 
 player_dim = const.PLAYER_DIMENSIONS
 player_img_dim = const.PLAYER_IMG_DIMENSIONS
-enemy1_dim = const.ENEMY1_DIMENSIONS
-enemy1_img_dim = const.ENEMY1_IMG_DIMENSIONS
+goblin_dim = const.GOBLIN_DIMENSIONS
+goblin_img_dim = const.GOBLIN_IMG_DIMENSIONS
 
 class Entity(GameElement):
     def __init__(self, start_platform, hp, start_frame, iframe_time, hit_kb_speed, hitbox_dimensions, image_offset, speed_cap = None, falls = True):
@@ -79,8 +78,7 @@ class Entity(GameElement):
         
         if self.pos.x < src_pos.x: self.velocity.x = -self.hit_kb_speed
         else: self.velocity.x = self.hit_kb_speed
-        
-      
+    
     def die(self):
         self.image = self.dead
         self.is_alive = False
@@ -182,6 +180,9 @@ class Player(Entity):
         
         self.set_inputs()
         
+        self.death_timer = pygut.Timer(const.PLAYER_DEATH_TIME_SEC, False, pygut.app.reset)
+        pygut.add_timer(self.death_timer)
+        
     def update(self, **kwargs):
         super().update(**kwargs)
         
@@ -193,7 +194,7 @@ class Player(Entity):
                     self.damage(1, e.pos)            
                     break
                 elif e.attack is not None and self.collider.collides(e.attack):
-                    self.damage(const.ENEMY1_ATK_DMG, e.pos)
+                    self.damage(const.GOBLIN_ATK_DMG, e.pos)
                     break
         
     def set_inputs(self):
@@ -277,6 +278,10 @@ class Player(Entity):
         self.attack = None
         self.can_attack = True
 
+    def die(self):
+        super().die()
+        self.death_timer.reset()
+
 class Attack(RectCollider):
     def __init__(self, parent: Entity, size):
         self.parent = parent
@@ -292,25 +297,12 @@ class Attack(RectCollider):
         super().__init__(x, y, size[WIDTH], size[HEIGHT])
 
 class Enemy(Entity, fsm.Machine):
-    def __init__(self, start_platform):
-        self.idle_right = pygame.transform.scale(pygame.image.load('assets/enemy1_idle.png').convert_alpha(), enemy1_img_dim)
-        self.idle_left = pygame.transform.flip(self.idle_right, True, False)
-        
-        self.attack_right = pygame.transform.scale(pygame.image.load('assets/enemy1_attack.png').convert_alpha(), enemy1_img_dim)
-        self.attack_left = pygame.transform.flip(self.attack_right, True, False)
-        
-        self.hit_right = pygame.transform.scale(pygame.image.load('assets/enemy1_hit.png').convert_alpha(), enemy1_img_dim)
-        self.hit_left = pygame.transform.flip(self.hit_right, True, False)
-        
-        self.dead = pygame.transform.scale(pygame.image.load('assets/enemy1_dead.png').convert_alpha(), enemy1_img_dim)
-        
-        self.attack_timer = pygut.Timer(const.ENEMY1_ATK_DELAY_SEC, False, self.attack_complete)
-        self.attack_cd_timer = pygut.Timer(const.ENEMY1_ATK_CD_SEC, False, self.attack_cd_complete)
+    def __init__(self, start_platform, hp, iframe_sec, kb_speed, dimensions, img_dimensions):
         pygut.add_timer(self.attack_timer)
         pygut.add_timer(self.attack_cd_timer)
         
-        Entity.__init__(self, start_platform, const.ENEMY1_HP, self.idle_right, const.ENEMY1_IFRAME_SEC, const.ENEMY1_KB_SPEED,
-                        enemy1_dim, (0, (enemy1_dim[HEIGHT]-enemy1_img_dim[HEIGHT])/2))
+        Entity.__init__(self, start_platform, hp, self.idle_right, iframe_sec, kb_speed,
+                        dimensions, (0, (dimensions[HEIGHT]-img_dimensions[HEIGHT])/2))
         
         patrol = fsm.State('Patrol', self.check_patrol_dist, self.reset_target)
         chase = fsm.State('Chase', self.check_chase, self.reset_target)
@@ -320,12 +312,9 @@ class Enemy(Entity, fsm.Machine):
         self.target: Platform = None
         self.current_target: Platform = None
         
-        self.type = 'Goblin'
-        
         fsm.Machine.__init__(self, states, patrol)
         
     def check_patrol_dist(self):
-        # Temp check until generation/world is done and I can write actual a* pathfinding and more fsm states
         return (pygut.app.player.pos - self.pos).magnitude_squared() >= const.PLAYER_DISTANCE_THRESHOLD_SQUARED
     def check_chase(self): 
         return not self.check_patrol_dist() and not self.check_attack()
@@ -346,7 +335,7 @@ class Enemy(Entity, fsm.Machine):
                 self.target = player.current_platform
                 self.current_target = self.next_step_towards()
             elif self.current_state == self.states[const.ATTACK]:
-                if (self.pos - player.pos).magnitude_squared() <= const.ENEMY1_TARGET_DIST_SQUARED:
+                if (self.pos - player.pos).magnitude_squared() <= const.GOBLIN_TARGET_DIST_SQUARED:
                     self.try_attack()
                 else: 
                     self.move_towards_player()
@@ -384,31 +373,31 @@ class Enemy(Entity, fsm.Machine):
     
     def move_towards_target(self):
         if self.current_target.pos.x < self.pos.x: 
-            self.velocity.x = -const.ENEMY1_PATROL_SPEED
+            self.velocity.x = -const.GOBLIN_PATROL_SPEED
             if self.facing_right: self.facing_right = False
         else: 
-            self.velocity.x = const.ENEMY1_PATROL_SPEED
+            self.velocity.x = const.GOBLIN_PATROL_SPEED
             if not self.facing_right: self.facing_right = True
         
         if self.current_target.pos.y < self.current_platform.pos.y and self.on_ground and not self.current_platform.ecto:
-            self.velocity.y = const.ENEMY1_JUMP_SPEED 
+            self.velocity.y = const.GOBLIN_JUMP_SPEED 
             
         self.fix_facing()
     
     def move_towards_player(self):
         player = pygut.app.player
         if player.pos.x < self.pos.x: 
-            self.velocity.x = -const.ENEMY1_PATROL_SPEED
+            self.velocity.x = -const.GOBLIN_PATROL_SPEED
             if self.facing_right: self.facing_right = False
         else: 
-            self.velocity.x = const.ENEMY1_PATROL_SPEED
+            self.velocity.x = const.GOBLIN_PATROL_SPEED
             if not self.facing_right: self.facing_right = True
             
         self.fix_facing()
     
     def move_logic(self):
         super().move_logic()
-        if self.current_target is not None and (self.pos - self.current_target.pos).magnitude_squared() < const.ENEMY1_TARGET_DIST_SQUARED: self.reset_target()
+        if self.current_target is not None and (self.pos - self.current_target.pos).magnitude_squared() < const.GOBLIN_TARGET_DIST_SQUARED: self.reset_target()
     
     def try_attack(self):
         if self.can_attack and self.is_alive:
@@ -416,7 +405,7 @@ class Enemy(Entity, fsm.Machine):
                 self.image = self.attack_right
             else:
                 self.image = self.attack_left
-            self.attack = Attack(self, const.ENEMY1_ATK_DIMENSIONS)
+            self.attack = Attack(self, const.GOBLIN_ATK_DIMENSIONS)
             self.attack_timer.reset()
             self.can_attack = False
     def attack_complete(self):
@@ -447,6 +436,31 @@ class Enemy(Entity, fsm.Machine):
     def face_player(self):
         if pygut.app.player.pos.x < self.pos.x: self.facing_right = False
         else: self.facing_right = True
+
+class Goblin(Enemy):
+    def __init__(self, start_platform):
+        self.type = 'Goblin'
+        
+        self.idle_right = pygame.transform.scale(pygame.image.load('assets/goblin_idle.png').convert_alpha(), goblin_img_dim)
+        self.idle_left = pygame.transform.flip(self.idle_right, True, False)
+        
+        self.attack_right = pygame.transform.scale(pygame.image.load('assets/goblin_attack.png').convert_alpha(), goblin_img_dim)
+        self.attack_left = pygame.transform.flip(self.attack_right, True, False)
+        
+        self.hit_right = pygame.transform.scale(pygame.image.load('assets/goblin_hit.png').convert_alpha(), goblin_img_dim)
+        self.hit_left = pygame.transform.flip(self.hit_right, True, False)
+        
+        self.dead = pygame.transform.scale(pygame.image.load('assets/goblin_dead.png').convert_alpha(), goblin_img_dim)
+        
+        self.attack_timer = pygut.Timer(const.GOBLIN_ATK_DELAY_SEC, False, self.attack_complete)
+        self.attack_cd_timer = pygut.Timer(const.GOBLIN_ATK_CD_SEC, False, self.attack_cd_complete)
+        
+        super().__init__(start_platform,
+                         const.GOBLIN_HP,
+                         const.GOBLIN_IFRAME_SEC,
+                         const.GOBLIN_KB_SPEED,
+                         const.GOBLIN_DIMENSIONS,
+                         const.GOBLIN_IMG_DIMENSIONS)
 
 class Platform(GameElement):
     def __init__(self, pos, w, h, ectoplasm = False):
