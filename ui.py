@@ -1,8 +1,9 @@
 import pygut
 import pygut.base
+import pygut.ui
 import pygame
 import const
-from const import HEIGHT
+from const import WIDTH, HEIGHT
 
 class HUD(pygut.base.UIElement):
     def __init__(self):
@@ -22,6 +23,8 @@ class HUD(pygut.base.UIElement):
             self.show_debug = not self.show_debug
 
         self.add_action(const.TOGGLE_DEBUG_KEY, pygut.K_RELEASED, toggle_debug)
+        
+        self.add_action(const.RESET_KEY, pygut.K_RELEASED, pygut.app.reset)
         
     def update(self, **kwargs):
         self.surf.fill((0,0,0,0))
@@ -69,6 +72,9 @@ class HUD(pygut.base.UIElement):
             
             if e.attack is not None:
                 pygame.draw.rect(self.debug, const.DEBUG_ENEMY_ATK_CLR, e.attack.bounds, 1)
+                
+            if e.target is not None and e.current_target is not None:
+                pygame.draw.rect(self.debug, const.DEBUG_ENEMY_CLR, e.current_target.collider.bounds, 1)
         
         self.debug.blit(self.debug_text, (self.debug.width - const.DEBUG_TEXT_WIDTH, 0))
     def set_interactable_debug(self):
@@ -92,3 +98,12 @@ class HUD(pygut.base.UIElement):
         self.debug_input.blit(right, (jump.width+atk.width+left.width+right.width, 0))
         
         self.debug.blit(self.debug_input, (0, self.debug.height - self.debug_input.height))
+
+class Menu(pygut.ui.Menu):
+    def __init__(self):
+        back_button_img = pygame.transform.scale(pygame.image.load('assets/close_button.png').convert(), const.BACK_BUTTON_DIMENSIONS)
+        def back():
+            pygut.app.set_screen(pygut.app.game_screen)
+        back_button = pygut.ui.Button(pygut.app.win.size[WIDTH] - back_button_img.width / 2, back_button_img.height / 2, back_button_img, back)
+        
+        super().__init__((0,0,0), [back_button])
