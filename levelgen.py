@@ -6,19 +6,19 @@ import entity
 from const import IMG_SCL, WIDTH, HEIGHT
 
 BLOCK = 12 * IMG_SCL                 # tile unit for platform widths/thickness
-PLATFORM_THICKNESS = BLOCK
+PLATFORM_THICKNESS = BLOCK/2
 FLOOR_THICKNESS = BLOCK
 MIN_BLOCKS, MAX_BLOCKS = 3, 6        # platform width range, in blocks
 
-PLAYER_H = const.PLAYER_DIMENSIONS[HEIGHT]
-HEAD_CLEARANCE = 10                  # extra room so the player never gets wedged
+GOBLIN_H = const.GOBLIN_DIMENSIONS[HEIGHT]
+HEAD_CLEARANCE = 20                # extra room so the player never gets wedged
 
 # Peak jump height from v^2 / 2g, with a safety margin.
 JUMP_HEIGHT = const.PLAYER_JUMP_SPEED ** 2 / (2 * const.GRAVITY)
 
 # Vertical distance between the tops of platforms in adjacent "tiers".
 # Min: enough room to stand under the upper platform. Max: within jump reach.
-MIN_STEP = PLATFORM_THICKNESS + PLAYER_H + HEAD_CLEARANCE
+MIN_STEP = PLATFORM_THICKNESS + GOBLIN_H + HEAD_CLEARANCE
 MAX_STEP = max(MIN_STEP, int(JUMP_HEIGHT * 0.85))
 
 MAX_HGAP = BLOCK // 2                # widest horizontal gap between same-level platforms
@@ -112,10 +112,10 @@ class Level:
         parent_idx = rng.randrange(len(self._rects))
         parent = self._rects[parent_idx]
 
-        width = rng.randint(MIN_BLOCKS, MAX_BLOCKS) * BLOCK
-        step = rng.randint(MIN_STEP, MAX_STEP)
+        width = rng.uniform(MIN_BLOCKS, MAX_BLOCKS) * BLOCK
+        step = rng.uniform(MIN_STEP, MAX_STEP)
         if parent_idx == 0:
-            left = rng.randint(SIDE_MARGIN, max(SIDE_MARGIN, self.width - width - SIDE_MARGIN))
+            left = rng.uniform(SIDE_MARGIN, max(SIDE_MARGIN, self.width - width - SIDE_MARGIN))
             top = parent.top - step
             return parent_idx, pygame.Rect(left, top, width, PLATFORM_THICKNESS)
 
@@ -123,11 +123,11 @@ class Level:
         kind = rng.choice(("up", "down", "level"))
 
         if kind == "level":
-            gap = rng.randint(MAX_HGAP // 2, MAX_HGAP)
+            gap = rng.uniform(MAX_HGAP // 2, MAX_HGAP)
             left = parent.right + gap if side > 0 else parent.left - gap - width
             top = parent.top
         else:
-            overlap = rng.randint(0, MAX_OVERLAP)
+            overlap = rng.uniform(0, MAX_OVERLAP)
             left = parent.right - overlap if side > 0 else parent.left + overlap - width
             top = parent.top - step if kind == "up" else parent.top + step
 
@@ -139,7 +139,7 @@ class Level:
             return False
         if rect.top < TOP_MARGIN:
             return False
-        padded = rect.inflate(2 * SPACING, 2 * PLAYER_H)
+        padded = rect.inflate(2 * SPACING, 2 * GOBLIN_H)
         for i, other in enumerate(self._rects):
             if i != parent_idx and padded.colliderect(other):
                 return False

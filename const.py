@@ -2,7 +2,7 @@ import pygame
 
 # Screen/Essential Constants
 FPS = 60
-IMG_SCL = 3.5
+IMG_SCL = 3
 RESET_KEY = pygame.K_r
 WIDTH = 0
 HEIGHT = 1
