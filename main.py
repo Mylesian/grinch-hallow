@@ -16,7 +16,8 @@ class Game(pygut.Application):
                 self.set_screen(self.game_screen)
             else: self.set_screen(self.menu)
             
-        self.menu = ui.Menu()
+        self.menu = ui.MainMenu()
+        self.controls_menu = ui.ControlsMenu()
         self.add_action(pygame.K_ESCAPE, pygut.K_PRESSED, flip_menu)
         
         self.reset()

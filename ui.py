@@ -99,11 +99,39 @@ class HUD(pygut.base.UIElement):
         
         self.debug.blit(self.debug_input, (0, self.debug.height - self.debug_input.height))
 
-class Menu(pygut.ui.Menu):
+class MainMenu(pygut.ui.Menu):
     def __init__(self):
         back_button_img = pygame.transform.scale(pygame.image.load('assets/close_button.png').convert(), const.BACK_BUTTON_DIMENSIONS)
         def back():
             pygut.app.set_screen(pygut.app.game_screen)
         back_button = pygut.ui.Button(pygut.app.win.size[WIDTH] - back_button_img.width / 2, back_button_img.height / 2, back_button_img, back)
         
-        super().__init__((0,0,0), [back_button])
+        def to_controls():
+            pygut.app.set_screen(pygut.app.controls_menu)
+        
+        controls_button = pygut.ui.Button(pygut.app.win.size[WIDTH]/2, pygut.app.win.size[HEIGHT]/2, 'CONTROLS', to_controls, font = const.DEBUG_FONT, font_color = (255, 255, 255))
+        
+        title_text = const.TITLE_FONT.render('Grinch\'s Hallow',
+                                             False, (255, 255, 255))
+        
+        title = pygut.base.UIElement((pygut.app.win.size[WIDTH]/2, pygut.app.win.size[HEIGHT]/2 - 200), title_text)
+        
+        super().__init__((0,0,0), [back_button, controls_button, title])
+
+class ControlsMenu(pygut.ui.Menu):
+    def __init__(self):
+        back_button_img = pygame.transform.scale(pygame.image.load('assets/close_button.png').convert(), const.BACK_BUTTON_DIMENSIONS)
+        def back():
+            pygut.app.set_screen(pygut.app.menu)
+        back_button = pygut.ui.Button(pygut.app.win.size[WIDTH] - back_button_img.width / 2, back_button_img.height / 2, back_button_img, back)
+        
+        text = const.DEBUG_FONT.render('Movement: Arrow Keys\n'+
+                                       'Jump: Z\n'+
+                                       'Attack: X\n'+
+                                       'Restart: R\n'+
+                                       'Debug: F3\n'+
+                                       'Menu: ESC', False, (255, 255, 255))
+        
+        controls_text = pygut.base.UIElement((pygut.app.win.size[WIDTH]/2, pygut.app.win.size[HEIGHT]/2), text)
+
+        super().__init__((0,0,0), [back_button, controls_text])
